@@ -151,6 +151,8 @@
       overflow: visible;
     }
     .top {
+      position: sticky;
+      top: 0;
       z-index: 10;
       flex: 0 0 auto;
       margin: -12px -12px 12px;
@@ -162,7 +164,7 @@
     .brand {
       display: grid;
       gap: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 0;
       position: relative;
       padding-top: 13px;
     }
@@ -1529,6 +1531,7 @@
           <button id="menuButton" class="menu-button" type="button" aria-label="Menü">☰</button>
         </div>
       </div>
+    </header>
       <section id="androidInstallPrompt" class="android-install-prompt" hidden>
         <span>
           <strong>Android uygulaması hazır</strong>
@@ -1542,7 +1545,6 @@
         <button id="todayButton" type="button">Bugün</button>
       </div>
       <div id="dayStrip" class="day-strip" aria-label="Gün seç"></div>
-    </header>
 
     <div id="shiftTabs" class="shift-tabs" aria-label="Vardiya seç">
       <button class="shift-tab active" data-shift="morning" type="button">Sabah<small id="morningTabCount">0 kişi</small></button>
@@ -1756,7 +1758,7 @@
     const messageTable = "shift_messages";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.06.28.09";
+    const appVersion = "2026.06.29.01";
     const notificationReadMarkerTitle = "__VSA_READ__";
     const notificationClearMarkerTitle = "__VSA_CLEAR__";
     const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
