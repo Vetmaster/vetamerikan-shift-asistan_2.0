@@ -1754,7 +1754,7 @@
     const messageTable = "shift_messages";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.06.28.01";
+    const appVersion = "2026.06.28.02";
     const notificationReadMarkerTitle = "__VSA_READ__";
     const notificationClearMarkerTitle = "__VSA_CLEAR__";
     const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
@@ -3407,11 +3407,19 @@
 
     async function sendPushNotification(item) {
       try {
-        await fetch(`${supabaseUrl}/functions/v1/${pushFunctionName}`, {
+        const sessionResult = supabaseClient
+          ? await supabaseClient.auth.getSession().catch(() => null)
+          : null;
+        const accessToken = sessionResult?.data?.session?.access_token;
+        if (!accessToken) {
+          els.notificationStatus.textContent = "Push gönderilemedi: oturum tokenı yok.";
+          return;
+        }
+        const response = await fetch(`${supabaseUrl}/functions/v1/${pushFunctionName}`, {
           method: "POST",
           headers: {
             apikey: supabaseKey,
-            Authorization: `Bearer ${supabaseKey}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -3421,8 +3429,14 @@
             sender: currentUsername() || ""
           })
         });
-      } catch {
-        // Edge Function kurulmadıysa uygulama içi bildirim akışı etkilenmez.
+        const text = await response.text().catch(() => "");
+        if (!response.ok) {
+          els.notificationStatus.textContent = `Push gönderilemedi: ${response.status} ${text.slice(0, 160)}`;
+          return;
+        }
+        els.notificationStatus.textContent = `Push gönderildi: ${text.slice(0, 120)}`;
+      } catch (error) {
+        els.notificationStatus.textContent = `Push gönderilemedi: ${error.message}`;
       }
     }
 
