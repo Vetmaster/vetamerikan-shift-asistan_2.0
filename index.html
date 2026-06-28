@@ -1709,6 +1709,7 @@
       </details>
       <div id="pushStatus" class="import-status">Push durumu: kontrol edilmedi.</div>
       <button id="pushRefreshButton" type="button">Push token yenile</button>
+      <button id="pushTestButton" type="button">Push test gönder</button>
       <div id="notificationStatus" class="import-status" hidden></div>
       <div id="appVersionLabel" class="import-status" hidden></div>
       <a id="drawerAndroidInstallLink" class="drawer-install-link" href="Vetamerikan-Shift-Asistan-debug.apk" download hidden>Android uygulamasını kur</a>
@@ -1756,7 +1757,7 @@
     const messageTable = "shift_messages";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.06.28.05";
+    const appVersion = "2026.06.28.06";
     const notificationReadMarkerTitle = "__VSA_READ__";
     const notificationClearMarkerTitle = "__VSA_CLEAR__";
     const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
@@ -2068,6 +2069,7 @@
       toastArea: document.getElementById("toastArea"),
       pushStatus: document.getElementById("pushStatus"),
       pushRefreshButton: document.getElementById("pushRefreshButton"),
+      pushTestButton: document.getElementById("pushTestButton"),
       notificationPermissionPrompt: document.getElementById("notificationPermissionPrompt"),
       notificationPromptAllow: document.getElementById("notificationPromptAllow"),
       notificationPromptDismiss: document.getElementById("notificationPromptDismiss"),
@@ -3432,7 +3434,7 @@
       }
     }
 
-    async function sendPushNotification(item) {
+    async function sendPushNotification(item, options = {}) {
       try {
         const sessionResult = supabaseClient
           ? await supabaseClient.auth.getSession().catch(() => null)
@@ -3440,8 +3442,10 @@
         const accessToken = sessionResult?.data?.session?.access_token;
         if (!accessToken) {
           els.notificationStatus.textContent = "Push gönderilemedi: oturum tokenı yok.";
+          updatePushStatus("Push durumu: gönderilemedi, oturum tokenı yok.");
           return;
         }
+        updatePushStatus("Push durumu: gönderiliyor.");
         const response = await fetch(`${supabaseUrl}/functions/v1/${pushFunctionName}`, {
           method: "POST",
           headers: {
@@ -3453,18 +3457,29 @@
             title: item.title,
             body: item.body,
             notification_id: item.id,
-            sender: currentUsername() || ""
+            sender: options.includeCurrentUser ? "__push_test__" : currentUsername() || ""
           })
         });
         const text = await response.text().catch(() => "");
         if (!response.ok) {
           els.notificationStatus.textContent = `Push gönderilemedi: ${response.status} ${text.slice(0, 160)}`;
+          updatePushStatus(`Push durumu: gönderilemedi ${response.status} ${text.slice(0, 120)}`);
           return;
         }
         els.notificationStatus.textContent = `Push gönderildi: ${text.slice(0, 120)}`;
+        updatePushStatus(`Push durumu: gönderildi ${text.slice(0, 140)}`);
       } catch (error) {
         els.notificationStatus.textContent = `Push gönderilemedi: ${error.message}`;
+        updatePushStatus(`Push durumu: gönderilemedi: ${error.message}`);
       }
+    }
+
+    function sendPushTestNotification() {
+      sendPushNotification({
+        id: `push-test-${Date.now()}`,
+        title: "Vetamerikan Shift Asistan",
+        body: "Push test bildirimi."
+      }, { includeCurrentUser: true });
     }
 
     function notificationFromRecord(record) {
@@ -4548,6 +4563,7 @@
     els.androidInstallLink.addEventListener("click", dismissAndroidInstallPrompt);
     els.androidInstallDismiss.addEventListener("click", dismissAndroidInstallPrompt);
     els.pushRefreshButton.addEventListener("click", requestAndroidPushToken);
+    els.pushTestButton.addEventListener("click", sendPushTestNotification);
     els.excelImportButton.addEventListener("click", importExcelFile);
     els.bicarbToolButton.addEventListener("click", openBicarbonateTool);
     els.calciumToolButton.addEventListener("click", openCalciumTool);
