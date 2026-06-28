@@ -1707,6 +1707,8 @@
           <button id="calciumToolButton" class="admin-only" type="button">İV Kalsiyum Hesaplama</button>
         </div>
       </details>
+      <div id="pushStatus" class="import-status">Push durumu: kontrol edilmedi.</div>
+      <button id="pushRefreshButton" type="button">Push token yenile</button>
       <div id="notificationStatus" class="import-status" hidden></div>
       <div id="appVersionLabel" class="import-status" hidden></div>
       <a id="drawerAndroidInstallLink" class="drawer-install-link" href="Vetamerikan-Shift-Asistan-debug.apk" download hidden>Android uygulamasını kur</a>
@@ -1754,7 +1756,7 @@
     const messageTable = "shift_messages";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.06.28.02";
+    const appVersion = "2026.06.28.03";
     const notificationReadMarkerTitle = "__VSA_READ__";
     const notificationClearMarkerTitle = "__VSA_CLEAR__";
     const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
@@ -2064,6 +2066,8 @@
       codeMenuOptions: document.getElementById("codeMenuOptions"),
       codeMenuClose: document.getElementById("codeMenuClose"),
       toastArea: document.getElementById("toastArea"),
+      pushStatus: document.getElementById("pushStatus"),
+      pushRefreshButton: document.getElementById("pushRefreshButton"),
       notificationPermissionPrompt: document.getElementById("notificationPermissionPrompt"),
       notificationPromptAllow: document.getElementById("notificationPromptAllow"),
       notificationPromptDismiss: document.getElementById("notificationPromptDismiss"),
@@ -2376,20 +2380,34 @@
     }
 
     function requestAndroidPushToken() {
-      if (!window.AndroidPush) return;
+      updatePushStatus("Push durumu: token isteniyor.");
+      if (!window.AndroidPush) {
+        updatePushStatus("Push durumu: Android köprüsü yok. Bu web sürümü olabilir.");
+        return;
+      }
       try {
         const token = window.AndroidPush.getToken?.();
         if (token) handleAndroidFcmToken(token);
+        if (!token) {
+          const lastError = window.AndroidPush.getLastError?.();
+          updatePushStatus(lastError
+            ? `Push durumu: token yok. Android hatası: ${lastError}`
+            : "Push durumu: token henüz yok, yenileme istendi.");
+        }
         window.AndroidPush.refreshToken?.();
-      } catch {
-        // Web sürümünde Android köprüsü yoktur.
+      } catch (error) {
+        updatePushStatus(`Push durumu: token istenemedi: ${error.message}`);
       }
     }
 
     async function handleAndroidFcmToken(token) {
       const cleanToken = String(token || "").trim();
-      if (!cleanToken) return;
+      if (!cleanToken) {
+        updatePushStatus("Push durumu: boş token geldi.");
+        return;
+      }
       localStorage.setItem(androidFcmTokenStorageKey, cleanToken);
+      updatePushStatus(`Push durumu: token alındı (${cleanToken.slice(0, 10)}...).`);
       if (!currentUsername()) return;
       await syncAndroidPushToken(cleanToken);
     }
@@ -2397,7 +2415,10 @@
     async function syncAndroidPushToken(token = localStorage.getItem(androidFcmTokenStorageKey) || "") {
       const cleanToken = String(token || "").trim();
       const username = currentUsername();
-      if (!cleanToken || !username) return;
+      if (!cleanToken || !username) {
+        updatePushStatus("Push durumu: token veya kullanıcı yok.");
+        return;
+      }
       try {
         await supabaseRequest(`${pushTokenTable}?on_conflict=token`, {
           method: "POST",
@@ -2409,9 +2430,15 @@
             updated_at: new Date().toISOString()
           })
         });
+        updatePushStatus(`Push durumu: Supabase'e kaydedildi (${username}).`);
       } catch (error) {
+        updatePushStatus(`Push durumu: kaydedilemedi: ${error.message}`);
         els.notificationStatus.textContent = `Push token kaydedilemedi: ${error.message}`;
       }
+    }
+
+    function updatePushStatus(message) {
+      if (els.pushStatus) els.pushStatus.textContent = message;
     }
 
     async function registerUser() {
@@ -4520,6 +4547,7 @@
     els.notificationPromptDismiss.addEventListener("click", dismissNotificationPrompt);
     els.androidInstallLink.addEventListener("click", dismissAndroidInstallPrompt);
     els.androidInstallDismiss.addEventListener("click", dismissAndroidInstallPrompt);
+    els.pushRefreshButton.addEventListener("click", requestAndroidPushToken);
     els.excelImportButton.addEventListener("click", importExcelFile);
     els.bicarbToolButton.addEventListener("click", openBicarbonateTool);
     els.calciumToolButton.addEventListener("click", openCalciumTool);
