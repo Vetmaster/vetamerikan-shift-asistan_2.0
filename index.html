@@ -36,7 +36,7 @@
       color: var(--ink);
       background: var(--paper);
       letter-spacing: 0;
-      overflow: hidden;
+      overflow-x: hidden;
     }
     button, input, select { font: inherit; }
     body.locked .app,
@@ -142,13 +142,13 @@
       font-weight: 800;
     }
     .app {
-      height: 100svh;
+      min-height: 100svh;
       max-width: 760px;
       margin: 0 auto;
       padding: 12px 12px 24px;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow: visible;
     }
     .top {
       z-index: 10;
@@ -609,10 +609,9 @@
       text-align: center;
     }
     #doctorList {
-      flex: 1 1 auto;
-      min-height: 0;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
+      flex: 0 0 auto;
+      min-height: auto;
+      overflow: visible;
     }
     .app.profile-mode .shift-tabs,
     .app.profile-mode .summary,
@@ -1757,7 +1756,7 @@
     const messageTable = "shift_messages";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.06.28.06";
+    const appVersion = "2026.06.28.09";
     const notificationReadMarkerTitle = "__VSA_READ__";
     const notificationClearMarkerTitle = "__VSA_CLEAR__";
     const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
