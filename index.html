@@ -863,8 +863,9 @@
       fill: none;
     }
     .notification-icon-button.message-icon svg {
-      width: 24px;
-      height: 24px;
+      width: 25px;
+      height: 25px;
+      stroke-width: 2;
     }
     .notification-count {
       position: absolute;
@@ -898,10 +899,23 @@
       background: var(--panel);
       color: var(--ink);
       padding: 10px 12px;
-      display: grid;
-      gap: 3px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
       text-align: left;
       font-weight: 900;
+    }
+    .message-thread-content {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+      flex: 1;
+    }
+    .message-thread-content span,
+    .message-thread-content small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .message-thread-button small {
       color: var(--muted);
@@ -939,6 +953,16 @@
       font-size: 12px;
       font-weight: 900;
       flex: 0 0 auto;
+    }
+    .message-thread-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+    }
+    .message-title-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
     .message-bubble {
       width: fit-content;
@@ -1523,8 +1547,9 @@
           </button>
           <button id="messageCenterButton" class="notification-icon-button message-icon" type="button" aria-label="Mesajlar">
             <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 6h16v12H4z"></path>
-              <path d="m4 7 8 6 8-6"></path>
+              <path d="M5.2 5h13.6c1.2 0 2.2 1 2.2 2.2v7.7c0 1.2-1 2.2-2.2 2.2h-7.2L6.7 20v-2.9H5.2c-1.2 0-2.2-1-2.2-2.2V7.2C3 6 4 5 5.2 5Z"></path>
+              <path d="M7.2 10h9.6"></path>
+              <path d="M7.2 13h6.3"></path>
             </svg>
             <span id="messageCount" class="notification-count" hidden>0</span>
           </button>
@@ -1537,7 +1562,7 @@
           <strong>Android uygulaması hazır</strong>
           <small>Web yerine telefonuna APK olarak kurabilirsin.</small>
         </span>
-        <a id="androidInstallLink" href="Vetamerikan-Shift-Asistan-2026.06.30.06.apk" download>Uygulamayı kur</a>
+        <a id="androidInstallLink" href="Vetamerikan-Shift-Asistan-2026.06.30.07.apk" download>Uygulamayı kur</a>
         <button id="androidInstallDismiss" type="button">Daha sonra</button>
       </section>
       <div class="search">
@@ -1713,7 +1738,7 @@
       <button id="pushTestButton" type="button">Push test gönder</button>
       <div id="notificationStatus" class="import-status" hidden></div>
       <div id="appVersionLabel" class="import-status" hidden></div>
-      <a id="drawerAndroidInstallLink" class="drawer-install-link" href="Vetamerikan-Shift-Asistan-2026.06.30.06.apk" download hidden>Android uygulamasını kur</a>
+      <a id="drawerAndroidInstallLink" class="drawer-install-link" href="Vetamerikan-Shift-Asistan-2026.06.30.07.apk" download hidden>Android uygulamasını kur</a>
       <button id="logoutButton" type="button">Çıkış yap</button>
     </div>
   </aside>
@@ -1758,7 +1783,7 @@
     const messageTable = "shift_messages";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.06.30.06";
+    const appVersion = "2026.06.30.07";
     const notificationReadMarkerTitle = "__VSA_READ__";
     const notificationClearMarkerTitle = "__VSA_CLEAR__";
     const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
@@ -2968,9 +2993,17 @@
       return row?.name || "";
     }
 
+    function displayNameForUser(username) {
+      const user = messageUser(username);
+      if (!user) return "Kullanıcı";
+      if (user === appUsername) return "Admin";
+      return doctorNameForUser(user) || user;
+    }
+
     function messageInitials(value) {
       const user = messageUser(value) || "kullanici";
       const doctorName = doctorNameForUser(user);
+      if (user === appUsername) return "AD";
       if (doctorName) return initialsForName(doctorName);
       const parts = user.replace(/[._-]+/g, " ").split(/\s+/).filter(Boolean);
       if (parts.length > 1) return parts.slice(0, 2).map(part => part[0]).join("").toLocaleUpperCase("tr-TR");
@@ -3133,12 +3166,21 @@
           </div>
         </div>
         <div class="message-thread-list">
-          ${threads.length ? threads.map(item => `
-            <button class="message-thread-button${item.read || messageUser(item.toUser) !== messageUser(currentUsername()) ? "" : " unread"}" type="button" data-message-sicil="${escapeHtml(item.doctorSicil)}" data-message-peer="${escapeHtml(item.peer || messagePeer(item))}">
-              <span>${escapeHtml(item.doctorName)}</span>
-              <small>${escapeHtml(item.sender || item.fromUser || "Kullanıcı")} → ${escapeHtml(item.toUser || "Kullanıcı")}: ${escapeHtml(item.body).slice(0, 80)}</small>
-            </button>
-          `).join("") : '<div class="empty">Henüz mesaj yok.</div>'}
+          ${threads.length ? threads.map(item => {
+            const peer = item.peer || messagePeer(item);
+            const peerName = peer ? displayNameForUser(peer) : (item.doctorName || "Kullanıcı");
+            const peerInitialSource = peer || item.doctorName || "Kullanıcı";
+            const senderName = displayNameForUser(item.sender || item.fromUser);
+            return `
+              <button class="message-thread-button${item.read || messageUser(item.toUser) !== messageUser(currentUsername()) ? "" : " unread"}" type="button" data-message-sicil="${escapeHtml(item.doctorSicil)}" data-message-peer="${escapeHtml(peer)}">
+                <div class="message-avatar message-thread-avatar" aria-label="${escapeHtml(peerName)}">${escapeHtml(peer ? messageInitials(peer) : initialsForName(peerInitialSource))}</div>
+                <div class="message-thread-content">
+                  <span>${escapeHtml(peerName)}</span>
+                  <small>${escapeHtml(senderName)}: ${escapeHtml(item.body).slice(0, 80)}</small>
+                </div>
+              </button>
+            `;
+          }).join("") : '<div class="empty">Henüz mesaj yok.</div>'}
         </div>
       `;
       document.getElementById("messageBackButton").addEventListener("click", () => goBackOrClose(closeMessageCenter));
@@ -3155,6 +3197,8 @@
       if (options.pushHistory !== false) pushAppHistory("message-thread", { sicil: String(sicil), peer: resolvedPeer, from: returnScreen });
       const messages = messagesForConversation(sicil, resolvedPeer);
       const doctorName = row?.name || messages[0]?.doctorName || "Hekim";
+      const peerName = resolvedPeer ? displayNameForUser(resolvedPeer) : doctorName;
+      const peerInitialSource = resolvedPeer || peerName;
       activeMessageSicil = String(sicil);
       activeMessagePeer = resolvedPeer;
       markThreadRead(sicil, resolvedPeer);
@@ -3163,7 +3207,10 @@
         <div class="profile-head-main">
           <button id="messageBackButton" class="profile-back" type="button">${backLabel}</button>
           <div class="profile-identity">
-            <h2 class="profile-name">${escapeHtml(doctorName)}</h2>
+            <div class="message-title-line">
+              <div class="message-avatar message-thread-avatar" aria-label="${escapeHtml(peerName)}">${escapeHtml(resolvedPeer ? messageInitials(resolvedPeer) : initialsForName(peerInitialSource))}</div>
+              <h2 class="profile-name">${escapeHtml(peerName)}</h2>
+            </div>
             <div class="profile-meta">
               <span class="tag">${escapeHtml(currentUsername())} ↔ ${escapeHtml(resolvedPeer)}</span>
               <span class="tag">${messages.length} kayıt</span>
