@@ -1016,10 +1016,38 @@
       line-height: 20px;
       display: inline-grid;
       place-items: center;
+      cursor: pointer;
     }
     .message-bubble.mine .message-like-button {
       left: -8px;
       right: auto;
+    }
+    .message-reaction-picker {
+      position: absolute;
+      left: 10px;
+      bottom: calc(100% + 6px);
+      z-index: 5;
+      display: flex;
+      gap: 4px;
+      padding: 5px;
+      border: 1px solid rgba(148, 163, 184, .24);
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(20, 33, 61, .18);
+    }
+    .message-reaction-choice {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      display: inline-grid;
+      place-items: center;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .message-reaction-choice:active {
+      transform: scale(.94);
     }
     .message-compose {
       position: sticky;
@@ -1583,7 +1611,7 @@
           <strong id="androidInstallTitle">Android uygulaması hazır</strong>
           <small id="androidInstallText">Web yerine telefonuna APK olarak kurabilirsin.</small>
         </span>
-        <a id="androidInstallLink" href="Vetamerikan-Shift-Asistan-2026.07.01.03.apk" download>Uygulamayı kur</a>
+        <a id="androidInstallLink" href="Vetamerikan-Shift-Asistan-2026.07.01.04.apk" download>Uygulamayı kur</a>
         <button id="androidInstallDismiss" type="button">Daha sonra</button>
       </section>
       <div class="search">
@@ -1759,7 +1787,7 @@
       <button id="pushTestButton" type="button">Push test gönder</button>
       <div id="notificationStatus" class="import-status" hidden></div>
       <div id="appVersionLabel" class="import-status" hidden></div>
-      <a id="drawerAndroidInstallLink" class="drawer-install-link" href="Vetamerikan-Shift-Asistan-2026.07.01.03.apk" download hidden>Android uygulamasını kur</a>
+      <a id="drawerAndroidInstallLink" class="drawer-install-link" href="Vetamerikan-Shift-Asistan-2026.07.01.04.apk" download hidden>Android uygulamasını kur</a>
       <button id="logoutButton" type="button">Çıkış yap</button>
     </div>
   </aside>
@@ -1806,7 +1834,7 @@
     const messageReactionTable = "shift_message_reactions";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
-    const appVersion = "2026.07.01.03";
+    const appVersion = "2026.07.01.04";
     const appUpdateManifestUrls = [
       "https://hasansargin.github.io/vetamerikan-shift-asistan/app-update.json",
       "https://hasansargin.github.io/Vetamerikan-Shift-Asistan/app-update.json",
@@ -3092,38 +3120,71 @@
       localStorage.setItem(messageReactionStorageKey, JSON.stringify(reactions));
     }
 
-    function reactionUsersForMessage(messageId) {
-      const users = savedMessageReactions()[String(messageId)] || [];
-      return Array.isArray(users) ? users.map(messageUser).filter(Boolean) : [];
+    const messageReactionOptions = [
+      { key: "heart", icon: "♥", mine: "Beğendin", other: "Beğendi", aria: "Kalp" },
+      { key: "smile", icon: "🙂", mine: "Gülümsedin", other: "Gülümsedi", aria: "Gülücük" },
+      { key: "laugh", icon: "😂", mine: "Kahkaha attın", other: "Kahkaha attı", aria: "Kahkaha" },
+      { key: "check", icon: "✅", mine: "Tik attın", other: "Tik attı", aria: "Yeşil tik" },
+      { key: "thumb", icon: "👍", mine: "Onayladın", other: "Onayladı", aria: "El ile onay" },
+      { key: "ok", icon: "👌", mine: "OK yaptın", other: "OK yaptı", aria: "OK işareti" }
+    ];
+
+    function messageReactionOption(key) {
+      return messageReactionOptions.find(option => option.key === key) || messageReactionOptions[0];
+    }
+
+    function normalizedReactionsForMessage(messageId) {
+      const raw = savedMessageReactions()[String(messageId)] || [];
+      if (!Array.isArray(raw)) return [];
+      return raw.map(item => {
+        if (typeof item === "string") {
+          return { username: messageUser(item), reaction: "heart", createdAt: "" };
+        }
+        return {
+          username: messageUser(item?.username || ""),
+          reaction: messageReactionOption(item?.reaction || "heart").key,
+          createdAt: item?.createdAt || item?.created_at || ""
+        };
+      }).filter(item => item.username);
+    }
+
+    function reactionForMessageByUser(messageId, username) {
+      const user = messageUser(username);
+      return normalizedReactionsForMessage(messageId).find(item => item.username === user) || null;
     }
 
     function isMessageLikedByCurrentUser(messageId) {
-      return reactionUsersForMessage(messageId).includes(messageUser(currentUsername()));
+      return Boolean(reactionForMessageByUser(messageId, currentUsername()));
     }
 
     function hasMessageReaction(messageId) {
-      return reactionUsersForMessage(messageId).length > 0;
+      return normalizedReactionsForMessage(messageId).length > 0;
     }
 
-    function setLocalMessageReaction(messageId, username, liked) {
+    function setLocalMessageReaction(messageId, username, reactionKey) {
       const key = String(messageId);
       const user = messageUser(username);
       if (!key || !user) return;
       const reactions = savedMessageReactions();
-      const users = new Set((reactions[key] || []).map(messageUser).filter(Boolean));
-      if (liked) users.add(user);
-      else users.delete(user);
-      if (users.size) reactions[key] = Array.from(users);
+      const list = normalizedReactionsForMessage(key).filter(item => item.username !== user);
+      if (reactionKey) {
+        list.push({
+          username: user,
+          reaction: messageReactionOption(reactionKey).key,
+          createdAt: new Date().toISOString()
+        });
+      }
+      if (list.length) reactions[key] = list;
       else delete reactions[key];
       saveMessageReactions(reactions);
     }
 
-    async function syncMessageReactionToSupabase(messageId, liked) {
+    async function syncMessageReactionToSupabase(messageId, reactionKey) {
       const username = messageUser(currentUsername());
       if (!username || !messageId) return;
       try {
         const id = `${messageId}:${username}`;
-        if (liked) {
+        if (reactionKey) {
           await supabaseRequest(`${messageReactionTable}?on_conflict=id`, {
             method: "POST",
             headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -3131,7 +3192,7 @@
               id,
               message_id: String(messageId),
               username,
-              reaction: "heart",
+              reaction: messageReactionOption(reactionKey).key,
               created_at: new Date().toISOString()
             })
           });
@@ -3143,9 +3204,9 @@
       }
     }
 
-    function toggleMessageLike(messageId, liked) {
-      setLocalMessageReaction(messageId, currentUsername(), liked);
-      syncMessageReactionToSupabase(messageId, liked);
+    function setMessageReaction(messageId, reactionKey) {
+      setLocalMessageReaction(messageId, currentUsername(), reactionKey);
+      syncMessageReactionToSupabase(messageId, reactionKey);
       if (activeMessageSicil) renderMessageThread(activeMessageSicil, activeMessagePeer, { pushHistory: false });
       else renderMessageInbox();
     }
@@ -3281,15 +3342,57 @@
     }
 
     function messageLikeMarkup(item, isMine) {
-      if (!hasMessageReaction(item.id)) return "";
-      const likedByMe = isMessageLikedByCurrentUser(item.id);
-      if (likedByMe && !isMine) {
-        return `<button class="message-like-button" type="button" data-unlike-message-id="${escapeHtml(item.id)}" aria-label="Beğenmeyi kaldır">♥</button>`;
+      const reactions = normalizedReactionsForMessage(item.id);
+      if (!reactions.length) return "";
+      const ownReaction = reactionForMessageByUser(item.id, currentUsername());
+      const shownReaction = ownReaction || reactions[reactions.length - 1];
+      const option = messageReactionOption(shownReaction.reaction);
+      if (ownReaction && !isMine) {
+        return `<button class="message-like-button" type="button" data-unlike-message-id="${escapeHtml(item.id)}" aria-label="Reaksiyonu kaldır">${escapeHtml(option.icon)}</button>`;
       }
-      return `<span class="message-like-button" aria-label="Beğenildi">♥</span>`;
+      return `<span class="message-like-button" aria-label="${escapeHtml(option.aria)}">${escapeHtml(option.icon)}</span>`;
     }
 
-    function messageThreadPreview(item) {
+    function messageReactionPickerMarkup(item, isMine) {
+      if (isMine) return "";
+      return `
+        <div class="message-reaction-picker" data-reaction-picker-for="${escapeHtml(item.id)}" hidden>
+          ${messageReactionOptions.map(option => `
+            <button class="message-reaction-choice" type="button" data-message-reaction-id="${escapeHtml(item.id)}" data-message-reaction="${escapeHtml(option.key)}" aria-label="${escapeHtml(option.aria)}">${escapeHtml(option.icon)}</button>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function latestReactionForThread(messages) {
+      let latest = null;
+      messages.forEach(message => {
+        normalizedReactionsForMessage(message.id).forEach(reaction => {
+          if (!reaction.createdAt) return;
+          if (!latest || new Date(reaction.createdAt).getTime() > new Date(latest.createdAt).getTime()) {
+            latest = { ...reaction, message };
+          }
+        });
+      });
+      return latest;
+    }
+
+    function messageReactionPreview(reaction) {
+      if (!reaction) return "";
+      const mine = reaction.username === messageUser(currentUsername());
+      const option = messageReactionOption(reaction.reaction);
+      const actionText = mine ? option.mine : option.other;
+      const timeText = relativeTimeLabel(reaction.createdAt);
+      return `${actionText}${timeText ? ` · ${timeText}` : ""}`;
+    }
+
+    function messageThreadPreview(item, threadMessages = null) {
+      const messages = threadMessages || messagesForConversation(item.doctorSicil, item.peer || inferredPeerForMessage(item));
+      const latestReaction = latestReactionForThread(messages);
+      if (latestReaction && new Date(latestReaction.createdAt).getTime() >= new Date(item.createdAt).getTime()) {
+        const preview = messageReactionPreview(latestReaction);
+        if (preview) return preview;
+      }
       const isMine = messageUser(item.fromUser || item.sender) === messageUser(currentUsername());
       if (isMine) {
         if (item.readAt) return `${relativeTimeLabel(item.readAt)} görüldü`;
@@ -3409,7 +3512,7 @@
             const peer = item.peer || inferredPeerForMessage(item);
             const peerName = conversationDisplayName(item, peer);
             const peerInitialSource = peer || item.doctorName || "Kullanıcı";
-            const previewText = messageThreadPreview(item);
+            const previewText = messageThreadPreview(item, messagesForConversation(item.doctorSicil, peer));
             return `
               <button class="message-thread-button${item.read || messageUser(item.toUser) !== messageUser(currentUsername()) ? "" : " unread"}" type="button" data-message-sicil="${escapeHtml(item.doctorSicil)}" data-message-peer="${escapeHtml(peer)}">
                 <div class="message-avatar message-thread-avatar" aria-label="${escapeHtml(peerName)}">${escapeHtml(messageAvatarInitials(peer, peerName || peerInitialSource))}</div>
@@ -3471,6 +3574,7 @@
                 <small>${escapeHtml(authorName)} · ${escapeHtml(messageTimeLabel(item.createdAt))}</small>
                 ${messageStatusMarkup(item)}
                 ${messageLikeMarkup(item, isMine)}
+                ${messageReactionPickerMarkup(item, isMine)}
               </article>
             </div>
           `;
@@ -3498,26 +3602,36 @@
       });
       els.messageView.querySelectorAll(".message-bubble[data-can-like='1']").forEach(bubble => {
         let lastTapAt = 0;
-        const likeFromBubble = event => {
+        const openReactionPicker = event => {
           event.preventDefault();
-          const id = bubble.dataset.messageId;
-          if (id && !isMessageLikedByCurrentUser(id)) toggleMessageLike(id, true);
+          const picker = bubble.querySelector("[data-reaction-picker-for]");
+          els.messageView.querySelectorAll("[data-reaction-picker-for]").forEach(item => {
+            if (item !== picker) item.hidden = true;
+          });
+          if (picker) picker.hidden = !picker.hidden;
         };
         bubble.addEventListener("dblclick", event => {
-          likeFromBubble(event);
+          openReactionPicker(event);
         });
         bubble.addEventListener("pointerup", event => {
-          if (event.target.closest("[data-unlike-message-id]")) return;
+          if (event.target.closest("[data-unlike-message-id], [data-message-reaction]")) return;
           const now = Date.now();
-          if (now - lastTapAt < 320) likeFromBubble(event);
+          if (now - lastTapAt < 320) openReactionPicker(event);
           lastTapAt = now;
+        });
+      });
+      els.messageView.querySelectorAll("[data-message-reaction-id]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          setMessageReaction(button.dataset.messageReactionId, button.dataset.messageReaction);
         });
       });
       els.messageView.querySelectorAll("[data-unlike-message-id]").forEach(button => {
         button.addEventListener("click", event => {
           event.preventDefault();
           event.stopPropagation();
-          toggleMessageLike(button.dataset.unlikeMessageId, false);
+          setMessageReaction(button.dataset.unlikeMessageId, "");
         });
       });
       requestAnimationFrame(() => {
@@ -3659,7 +3773,7 @@
 
     async function loadSupabaseMessageReactions({ silent = true } = {}) {
       try {
-        const records = await supabaseRequest(`${messageReactionTable}?select=message_id,username,reaction,created_at&reaction=eq.heart&order=created_at.desc&limit=1000`);
+        const records = await supabaseRequest(`${messageReactionTable}?select=message_id,username,reaction,created_at&order=created_at.desc&limit=1000`);
         if (!Array.isArray(records)) return;
         const fingerprint = JSON.stringify(records.map(record => [record.message_id, record.username, record.reaction, record.created_at]));
         if (fingerprint === lastMessageReactionFingerprint && silent) return;
@@ -3670,7 +3784,13 @@
           const username = messageUser(record.username || "");
           if (!messageId || !username) return;
           if (!reactions[messageId]) reactions[messageId] = [];
-          if (!reactions[messageId].includes(username)) reactions[messageId].push(username);
+          if (!reactions[messageId].some(item => item.username === username)) {
+            reactions[messageId].push({
+              username,
+              reaction: messageReactionOption(record.reaction || "heart").key,
+              createdAt: record.created_at || ""
+            });
+          }
         });
         saveMessageReactions(reactions);
         if (!els.messageView.hidden) {
