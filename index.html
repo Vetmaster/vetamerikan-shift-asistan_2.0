@@ -965,6 +965,7 @@
       gap: 10px;
     }
     .message-bubble {
+      position: relative;
       width: fit-content;
       max-width: calc(86% - 42px);
       padding: 10px 12px;
@@ -999,6 +1000,26 @@
     }
     .message-status.read {
       color: var(--brand);
+    }
+    .message-like-button {
+      position: absolute;
+      right: -8px;
+      bottom: -12px;
+      min-width: 28px;
+      height: 24px;
+      border: 1px solid rgba(217, 45, 32, .22);
+      border-radius: 999px;
+      background: #fff;
+      color: #d92d20;
+      box-shadow: 0 6px 16px rgba(20, 33, 61, .16);
+      font-size: 14px;
+      line-height: 20px;
+      display: inline-grid;
+      place-items: center;
+    }
+    .message-bubble.mine .message-like-button {
+      left: -8px;
+      right: auto;
     }
     .message-compose {
       position: sticky;
@@ -1773,6 +1794,7 @@
     const notificationListStorageKey = "vetamerikan-shift-notification-list";
     const notificationClearedAtStorageKey = "vetamerikan-shift-notifications-cleared-at";
     const messageListStorageKey = "vetamerikan-shift-message-list";
+    const messageReactionStorageKey = "vetamerikan-shift-message-reactions";
     const androidInstallDismissedKey = "vetamerikan-shift-android-install-dismissed";
     const androidFcmTokenStorageKey = "vetamerikan-shift-android-fcm-token";
     const supabaseUrl = "https://hmbqrccjuiknlqdzoltx.supabase.co";
@@ -1781,6 +1803,7 @@
     const datasetTable = "shift_datasets";
     const notificationTable = "shift_notifications";
     const messageTable = "shift_messages";
+    const messageReactionTable = "shift_message_reactions";
     const pushTokenTable = "shift_push_tokens";
     const pushFunctionName = "send-push-notification";
     const appVersion = "2026.07.01.02";
@@ -2010,10 +2033,12 @@
     let supabaseRealtimeChannel = null;
     let supabaseNotificationChannel = null;
     let supabaseMessageChannel = null;
+    let supabaseMessageReactionChannel = null;
     let supabasePollTimer = null;
     let lastRemoteFingerprint = "";
     let lastNotificationFingerprint = "";
     let lastMessageFingerprint = "";
+    let lastMessageReactionFingerprint = "";
     let lastMessageSyncText = "";
     let activeMessageSicil = null;
     let activeMessagePeer = "";
@@ -3055,6 +3080,76 @@
       localStorage.setItem(messageListStorageKey, JSON.stringify(items.slice(0, 300)));
     }
 
+    function savedMessageReactions() {
+      try {
+        return JSON.parse(localStorage.getItem(messageReactionStorageKey) || "{}");
+      } catch {
+        return {};
+      }
+    }
+
+    function saveMessageReactions(reactions) {
+      localStorage.setItem(messageReactionStorageKey, JSON.stringify(reactions));
+    }
+
+    function reactionUsersForMessage(messageId) {
+      const users = savedMessageReactions()[String(messageId)] || [];
+      return Array.isArray(users) ? users.map(messageUser).filter(Boolean) : [];
+    }
+
+    function isMessageLikedByCurrentUser(messageId) {
+      return reactionUsersForMessage(messageId).includes(messageUser(currentUsername()));
+    }
+
+    function hasMessageReaction(messageId) {
+      return reactionUsersForMessage(messageId).length > 0;
+    }
+
+    function setLocalMessageReaction(messageId, username, liked) {
+      const key = String(messageId);
+      const user = messageUser(username);
+      if (!key || !user) return;
+      const reactions = savedMessageReactions();
+      const users = new Set((reactions[key] || []).map(messageUser).filter(Boolean));
+      if (liked) users.add(user);
+      else users.delete(user);
+      if (users.size) reactions[key] = Array.from(users);
+      else delete reactions[key];
+      saveMessageReactions(reactions);
+    }
+
+    async function syncMessageReactionToSupabase(messageId, liked) {
+      const username = messageUser(currentUsername());
+      if (!username || !messageId) return;
+      try {
+        const id = `${messageId}:${username}`;
+        if (liked) {
+          await supabaseRequest(`${messageReactionTable}?on_conflict=id`, {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify({
+              id,
+              message_id: String(messageId),
+              username,
+              reaction: "heart",
+              created_at: new Date().toISOString()
+            })
+          });
+        } else {
+          await supabaseRequest(`${messageReactionTable}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+        }
+      } catch {
+        // Reaksiyon tablosu yoksa beğeni yerelde çalışmaya devam etsin.
+      }
+    }
+
+    function toggleMessageLike(messageId, liked) {
+      setLocalMessageReaction(messageId, currentUsername(), liked);
+      syncMessageReactionToSupabase(messageId, liked);
+      if (activeMessageSicil) renderMessageThread(activeMessageSicil, activeMessagePeer, { pushHistory: false });
+      else renderMessageInbox();
+    }
+
     function messageTimeLabel(createdAt) {
       return notificationTimeLabel(createdAt);
     }
@@ -3183,6 +3278,15 @@
       if (messageUser(item.fromUser || item.sender) !== messageUser(currentUsername())) return "";
       const isRead = Boolean(item.readAt);
       return `<span class="message-status${isRead ? " read" : ""}">${isRead ? "✓✓" : "✓"}</span>`;
+    }
+
+    function messageLikeMarkup(item, isMine) {
+      if (!hasMessageReaction(item.id)) return "";
+      const likedByMe = isMessageLikedByCurrentUser(item.id);
+      if (likedByMe && !isMine) {
+        return `<button class="message-like-button" type="button" data-unlike-message-id="${escapeHtml(item.id)}" aria-label="Beğenmeyi kaldır">♥</button>`;
+      }
+      return `<span class="message-like-button" aria-label="Beğenildi">♥</span>`;
     }
 
     function messageThreadPreview(item) {
@@ -3362,10 +3466,11 @@
             return `
             <div class="message-row${isMine ? " mine" : ""}">
               <div class="message-avatar" aria-label="${escapeHtml(authorName)}">${escapeHtml(messageAvatarInitials(authorUser, authorName))}</div>
-              <article class="message-bubble${isMine ? " mine" : ""}">
+              <article class="message-bubble${isMine ? " mine" : ""}" data-message-id="${escapeHtml(item.id)}" data-can-like="${isMine ? "0" : "1"}">
                 <p>${escapeHtml(item.body)}</p>
                 <small>${escapeHtml(authorName)} · ${escapeHtml(messageTimeLabel(item.createdAt))}</small>
                 ${messageStatusMarkup(item)}
+                ${messageLikeMarkup(item, isMine)}
               </article>
             </div>
           `;
@@ -3390,6 +3495,30 @@
       document.getElementById("messageComposeForm").addEventListener("submit", event => {
         event.preventDefault();
         sendMessage(sicil, doctorName, resolvedPeer);
+      });
+      els.messageView.querySelectorAll(".message-bubble[data-can-like='1']").forEach(bubble => {
+        let lastTapAt = 0;
+        const likeFromBubble = event => {
+          event.preventDefault();
+          const id = bubble.dataset.messageId;
+          if (id && !isMessageLikedByCurrentUser(id)) toggleMessageLike(id, true);
+        };
+        bubble.addEventListener("dblclick", event => {
+          likeFromBubble(event);
+        });
+        bubble.addEventListener("pointerup", event => {
+          if (event.target.closest("[data-unlike-message-id]")) return;
+          const now = Date.now();
+          if (now - lastTapAt < 320) likeFromBubble(event);
+          lastTapAt = now;
+        });
+      });
+      els.messageView.querySelectorAll("[data-unlike-message-id]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleMessageLike(button.dataset.unlikeMessageId, false);
+        });
       });
       requestAnimationFrame(() => {
         const rows = els.messageView.querySelectorAll(".message-row");
@@ -3528,6 +3657,31 @@
       }
     }
 
+    async function loadSupabaseMessageReactions({ silent = true } = {}) {
+      try {
+        const records = await supabaseRequest(`${messageReactionTable}?select=message_id,username,reaction,created_at&reaction=eq.heart&order=created_at.desc&limit=1000`);
+        if (!Array.isArray(records)) return;
+        const fingerprint = JSON.stringify(records.map(record => [record.message_id, record.username, record.reaction, record.created_at]));
+        if (fingerprint === lastMessageReactionFingerprint && silent) return;
+        lastMessageReactionFingerprint = fingerprint;
+        const reactions = {};
+        records.forEach(record => {
+          const messageId = String(record.message_id || "");
+          const username = messageUser(record.username || "");
+          if (!messageId || !username) return;
+          if (!reactions[messageId]) reactions[messageId] = [];
+          if (!reactions[messageId].includes(username)) reactions[messageId].push(username);
+        });
+        saveMessageReactions(reactions);
+        if (!els.messageView.hidden) {
+          if (activeMessageSicil) renderMessageThread(activeMessageSicil, activeMessagePeer, { pushHistory: false });
+          else renderMessageInbox();
+        }
+      } catch {
+        if (!silent) lastMessageSyncText = "Mesaj beğenileri alınamadı.";
+      }
+    }
+
     async function loadSupabaseMessages({ silent = false } = {}) {
       try {
         const records = await supabaseRequest(`${messageTable}?select=id,doctor_sicil,doctor_name,sender,from_user,to_user,body,read_at,created_at&order=created_at.desc&limit=300`);
@@ -3541,6 +3695,7 @@
           return { ...message, read: localReadState.get(message.id) || message.read };
         });
         saveMessages(remoteMessages);
+        loadSupabaseMessageReactions({ silent: true });
         lastMessageSyncText = `Mesajlar güncel: ${remoteMessages.length} kayıt`;
         renderMessageBadge();
         if (!els.messageView.hidden) {
@@ -3560,6 +3715,10 @@
     function handleSupabaseMessage(payload) {
       if (!["INSERT", "UPDATE"].includes(payload.eventType) || !payload.new?.id) return;
       upsertLocalMessage(messageFromRecord(payload.new));
+    }
+
+    function handleSupabaseMessageReaction() {
+      loadSupabaseMessageReactions({ silent: true });
     }
 
     function renderNotificationCenter() {
@@ -4004,6 +4163,14 @@
           table: messageTable
         }, handleSupabaseMessage)
         .subscribe();
+      supabaseMessageReactionChannel = supabaseClient
+        .channel("shift-message-reactions-realtime")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: messageReactionTable
+        }, handleSupabaseMessageReaction)
+        .subscribe();
     }
 
     function startSupabasePollingFallback() {
@@ -4012,6 +4179,7 @@
         await loadSupabaseOverrides({ replace: true, syncLocal: false, silent: true });
         await loadSupabaseNotifications({ silent: true });
         await loadSupabaseMessages({ silent: true });
+        await loadSupabaseMessageReactions({ silent: true });
         supabasePollTimer = window.setTimeout(poll, document.hidden ? 5000 : 1500);
       };
       supabasePollTimer = window.setTimeout(poll, 1500);
@@ -4021,12 +4189,14 @@
       loadSupabaseOverrides({ replace: true, syncLocal: false, silent: true });
       loadSupabaseNotifications({ silent: true });
       loadSupabaseMessages({ silent: true });
+      loadSupabaseMessageReactions({ silent: true });
     }
 
     function forceSupabaseRefresh() {
       loadSupabaseOverrides({ replace: true, syncLocal: false, silent: false });
       loadSupabaseNotifications({ silent: false });
       loadSupabaseMessages({ silent: false });
+      loadSupabaseMessageReactions({ silent: false });
     }
 
     function renderAppVersion() {
@@ -4974,6 +5144,7 @@
     loadSupabaseOverrides({ replace: true, syncLocal: false });
     loadSupabaseNotifications({ silent: false });
     loadSupabaseMessages({ silent: false });
+    loadSupabaseMessageReactions({ silent: true });
     startSupabaseRealtime();
     startSupabasePollingFallback();
   </script>
